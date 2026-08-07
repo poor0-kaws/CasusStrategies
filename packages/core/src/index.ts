@@ -1,3 +1,5 @@
+export * from "./allocation";
+export * from "./hedging";
 export * from "./probability";
 export * from "./research";
 export * from "./relationships";

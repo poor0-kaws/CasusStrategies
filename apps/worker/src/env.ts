@@ -4,6 +4,9 @@ export interface Env {
   PREDARENA_API_KEY: string;
   PREDARENA_WEBHOOK_SECRET: string;
   GROQ_API_KEY: string;
+  CONGRESS_API_KEY: string;
+  FEC_API_KEY: string;
+  SOURCE_CONTACT_EMAIL: string;
   PREDARENA_BASE_URL: string;
   GROQ_BASE_URL: string;
   GROQ_MODEL_TRIAGE: string;

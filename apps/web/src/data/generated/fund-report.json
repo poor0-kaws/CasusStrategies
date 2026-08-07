@@ -1,16 +1,23 @@
 {
+  "schemaVersion": 2,
   "fundName": "Casus Strategies",
   "startingNav": 1000,
-  "inceptionDate": "2026-01-01",
+  "liveInceptionDate": null,
   "asOf": "2026-07-31",
-  "status": "illustrative",
-  "months": [
-    { "period": "2026-01", "closingNav": 1018 },
-    { "period": "2026-02", "closingNav": 1012.91 },
-    { "period": "2026-03", "closingNav": 1041.27 },
-    { "period": "2026-04", "closingNav": 1052.72 },
-    { "period": "2026-05", "closingNav": 1045.35 },
-    { "period": "2026-06", "closingNav": 1072.53 },
-    { "period": "2026-07", "closingNav": 1088.62 }
+  "backtestMonths": [
+    { "period": "2026-02", "returnPercent": -0.5 },
+    { "period": "2026-03", "returnPercent": 2.8 },
+    { "period": "2026-04", "returnPercent": 1.1 },
+    { "period": "2026-05", "returnPercent": -0.7 },
+    { "period": "2026-06", "returnPercent": 2.6 },
+    { "period": "2026-07", "returnPercent": 1.5 }
+  ],
+  "liveMonths": [],
+  "sectorAllocation": [
+    { "category": "weather", "percent": 30 },
+    { "category": "economics", "percent": 25 },
+    { "category": "public_policy", "percent": 15 },
+    { "category": "legal_regulatory", "percent": 15 },
+    { "category": "corporate_events", "percent": 15 }
   ]
 }

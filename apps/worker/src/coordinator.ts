@@ -4,8 +4,11 @@ import { GroqClient } from "./adapters/groq";
 import { PredArenaAdapter } from "./adapters/predarena";
 import { KalshiRulesAdapter, PolymarketRulesAdapter, RulesRouter } from "./adapters/rules";
 import {
+  CorporateEventsSourceAdapter,
   EconomicsSourceAdapter,
+  LegalRegulatorySourceAdapter,
   OfficialSourceRouter,
+  PublicPolicySourceAdapter,
   WeatherSourceAdapter,
 } from "./adapters/sources";
 import { PointInTimeCollector } from "./collector";
@@ -71,7 +74,12 @@ export class FundCoordinator implements DurableObject {
     }
 
     try {
-      const result = await createPipeline(this.env, store, () => now).run(window);
+      const result = await createPipeline(
+        this.env,
+        store,
+        () => now,
+        window.maximumModelRequests,
+      ).run(window);
       const reporting = await runReporting(this.env, store, now);
       const details = { ...result, reporting };
       await store.completeRun(window.runKey, "completed", details, new Date().toISOString());
@@ -159,6 +167,7 @@ function createPipeline(
   env: Env,
   store: D1ResearchStore,
   now: () => Date = () => new Date(),
+  maximumModelRequests = 0,
 ): ResearchPipeline {
   const predArena = new PredArenaAdapter({
     apiKey: env.PREDARENA_API_KEY,
@@ -167,14 +176,25 @@ function createPipeline(
   const collector = new PointInTimeCollector(predArena, store, now);
   const rules = new RulesRouter(new KalshiRulesAdapter(), new PolymarketRulesAdapter());
   const sources = new OfficialSourceRouter(
-    new WeatherSourceAdapter({ now }),
-    new EconomicsSourceAdapter({ now }),
+    new WeatherSourceAdapter({ now, contactEmail: env.SOURCE_CONTACT_EMAIL }),
+    new EconomicsSourceAdapter({ now, contactEmail: env.SOURCE_CONTACT_EMAIL }),
+    new PublicPolicySourceAdapter({
+      now,
+      contactEmail: env.SOURCE_CONTACT_EMAIL,
+      apiKeysByHost: {
+        "api.congress.gov": { parameter: "api_key", value: env.CONGRESS_API_KEY },
+        "api.open.fec.gov": { parameter: "api_key", value: env.FEC_API_KEY },
+      },
+    }),
+    new LegalRegulatorySourceAdapter({ now, contactEmail: env.SOURCE_CONTACT_EMAIL }),
+    new CorporateEventsSourceAdapter({ now, contactEmail: env.SOURCE_CONTACT_EMAIL }),
   );
   const groq = new GroqClient({
     apiKey: env.GROQ_API_KEY,
     baseUrl: env.GROQ_BASE_URL,
     store,
     now,
+    maximumRequestsThisCycle: maximumModelRequests,
   });
   return new ResearchPipeline({
     store,

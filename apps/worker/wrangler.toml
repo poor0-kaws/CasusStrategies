@@ -16,6 +16,7 @@ GITHUB_REPORTS_BRANCH = "main"
 REPORT_PATH = "apps/web/src/data/generated/fund-report.json"
 FUND_INCEPTION_DATE = "replace-when-paper-mode-is-approved"
 FUND_STARTING_NAV = "1000"
+SOURCE_CONTACT_EMAIL = "replace-with-monitored-email"
 
 [[d1_databases]]
 binding = "RESEARCH_DB"

@@ -5,6 +5,7 @@ export interface ScheduledWindow {
   hour: number;
   runKey: string;
   isMorningSelection: boolean;
+  maximumModelRequests: number;
 }
 
 export function getScheduledWindow(now: Date): ScheduledWindow | null {
@@ -29,6 +30,7 @@ export function getScheduledWindow(now: Date): ScheduledWindow | null {
     hour,
     runKey: `research:${date}:${hour.toString().padStart(2, "0")}`,
     isMorningSelection: hour === 8,
+    maximumModelRequests: hour === 8 ? 5 : hour === 20 ? 0 : 2,
   };
 }
 

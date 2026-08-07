@@ -16,7 +16,7 @@ but the cash and positions exist only inside the simulator.
    PredArena or construct an executable API request.
 3. Ordinary TypeScript combines the inputs and makes a conservative probability range.
 4. The risk gate checks ambiguity, evidence age, entry and exit depth, time to close, daily limits,
-   market loss, related-market loss, and total exposure.
+   market loss, cluster loss, sector loss, gross deployment, and worst-case scenario loss.
 5. PredArena previews the order without changing the portfolio. Casus recalculates the edge using
    the preview's volume-weighted price, fee, and required cash.
 6. Shadow mode stops here. Paper mode first writes an `execution_pending` order to D1, then sends
@@ -37,14 +37,17 @@ can submit a paper order. The other thresholds are private research and cost no 
 
 ## Hedging and related markets
 
-Verified contract relationships form one risk cluster. Positions in that cluster share a 5% maximum
-loss budget, so two related contracts are not mistaken for two independent bets. Relationship-based
-trading itself remains research-only. The model may propose a relationship, but only deterministic
-code can mark it verified, and version one never submits a trade from that strategy.
+Verified contract relationships form one risk cluster, so related contracts are not mistaken for
+independent bets. The model may propose a relationship, but only deterministic code can mark it
+verified. Automatic relationship trading is limited to two-leg structures whose valid outcomes,
+visible depth, preview prices, fees, and orphan-leg loss all pass ordinary TypeScript checks. If the
+second FOK leg fails, the cluster freezes while the confirmed first leg is reconciled and an unwind
+is attempted within two ticks. An unconfirmed unwind freezes every new order.
 
 ## Performance records
 
 PredArena NAV is the official paper result. Internally, Casus also records what the signal would have
 earned at the observed quote and a harsher result using the confirmed fill, one and three extra
 ticks, quotes one and five seconds later, and no maker-fill assumption. The public website receives
-only completed month-end NAV values and derives monthly and total percentage returns from them.
+approved historical monthly returns, completed live month-end NAV, and aggregate sector weights.
+Live records replace matching historical tiles, while NAV and total return use live values only.

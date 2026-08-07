@@ -2,8 +2,10 @@ import {
   applyLikelihoodRatio,
   combineProbabilitiesInLogOdds,
   shrinkProbabilityTowardMarket,
+  researchCategorySchema,
   type ContractFacts,
   type Forecast,
+  type ResearchCategory,
   type Relationship,
   verifyRelationship,
 } from "@casus/core";
@@ -61,6 +63,7 @@ const ContractBatchSchema = z.object({
         ]),
         explanation: z.string().min(1).max(1_000),
         confidence: z.number().min(0).max(1),
+        exhaustiveOutcomeKeys: z.array(z.string().min(1)).length(2).optional(),
       }),
     )
     .max(30),
@@ -68,7 +71,7 @@ const ContractBatchSchema = z.object({
 
 const EvidenceItemSchema = z.object({
   marketId: z.string(),
-  category: z.enum(["weather", "economics"]),
+  category: researchCategorySchema,
   baseRateProbability: z.number().min(0.01).max(0.99),
   structuredProbability: z.number().min(0.01).max(0.99),
   likelihoodRatios: z
@@ -103,7 +106,7 @@ export interface AgentBatchResult<T> {
 
 export interface EvidenceAnalysis {
   marketId: string;
-  category: "weather" | "economics";
+  category: ResearchCategory;
   baseRateProbability: number;
   structuredProbability: number;
   likelihoodRatios: number[];
@@ -137,7 +140,7 @@ export class IntelligenceAgents {
       schema: TriageSchema,
       maxOutputTokens: 500,
       system:
-        "You rank slow weather and economics prediction markets for careful research. Return JSON only. Never issue trades.",
+        "You rank slow prediction markets across weather, economics, public policy, legal and regulatory events, and corporate filings. Return JSON only. Never issue trades.",
       user: JSON.stringify({
         instruction:
           "Return 10 to 15 market IDs. Prefer clear rules, useful liquidity, and hours or days to react.",
@@ -226,7 +229,14 @@ export class IntelligenceAgents {
       if (!left || !right) {
         continue;
       }
-      const verification = verifyRelationship({ kind: proposal.kind, left, right });
+      const verification = verifyRelationship({
+        kind: proposal.kind,
+        left,
+        right,
+        ...(proposal.exhaustiveOutcomeKeys
+          ? { exhaustiveOutcomeKeys: proposal.exhaustiveOutcomeKeys }
+          : {}),
+      });
       relationships.push({
         id: await sha256Hex(
           `relationship:${left.id}:${proposal.kind}:${right.id}:${left.ruleVersion}:${right.ruleVersion}`,

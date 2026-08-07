@@ -17,6 +17,17 @@ const SLOW_MARKET_TERMS = [
   "federal reserve",
   "interest rate",
   "treasury",
+  "election",
+  "congress",
+  "bill",
+  "regulation",
+  "court",
+  "supreme court",
+  "sec",
+  "filing",
+  "earnings",
+  "merger",
+  "acquisition",
 ];
 
 export class PointInTimeCollector {
@@ -30,6 +41,9 @@ export class PointInTimeCollector {
     const resultGroups = await Promise.all([
       this.predArena.searchMarkets("weather"),
       this.predArena.searchMarkets("economics"),
+      this.predArena.searchMarkets("politics policy"),
+      this.predArena.searchMarkets("legal regulation"),
+      this.predArena.searchMarkets("corporate filings"),
       this.predArena.getTrendingMarkets(),
     ]);
     const candidates = deduplicateMarkets(resultGroups.flat());

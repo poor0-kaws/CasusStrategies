@@ -1,3 +1,9 @@
+import {
+  BASE_SECTOR_ALLOCATION,
+  calculateAdaptiveAllocation,
+  researchCategorySchema,
+  type SectorAllocation,
+} from "@casus/core";
 import { z } from "zod";
 
 import type { PaperPortfolio } from "./contracts";
@@ -13,7 +19,44 @@ const MonthEndRecordSchema = z
   })
   .strict();
 
+const BacktestMonthSchema = z
+  .object({
+    period: z.string().regex(/^\d{4}-\d{2}$/),
+    returnPercent: z.number().finite(),
+  })
+  .strict();
+
+const SectorAllocationSchema = z
+  .object({
+    category: researchCategorySchema,
+    percent: z.number().min(0).max(100).finite(),
+  })
+  .strict();
+
 export const PublicFundReportSchema = z
+  .object({
+    schemaVersion: z.literal(2),
+    fundName: z.literal("Casus Strategies"),
+    startingNav: z.number().positive().finite(),
+    liveInceptionDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable(),
+    asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    backtestMonths: z.array(BacktestMonthSchema),
+    liveMonths: z.array(MonthEndRecordSchema),
+    sectorAllocation: z.array(SectorAllocationSchema).length(5),
+  })
+  .strict()
+  .refine(
+    (report) =>
+      Math.abs(
+        report.sectorAllocation.reduce((sum, allocation) => sum + allocation.percent, 0) - 100,
+      ) < 0.001,
+    { message: "Sector allocation must total 100%" },
+  );
+
+const LegacyPublicFundReportSchema = z
   .object({
     fundName: z.literal("Casus Strategies"),
     startingNav: z.number().positive().finite(),
@@ -25,6 +68,15 @@ export const PublicFundReportSchema = z
   .strict();
 
 export type PublicFundReport = z.infer<typeof PublicFundReportSchema>;
+
+export const APPROVED_BACKTEST_MONTHS: PublicFundReport["backtestMonths"] = [
+  { period: "2026-02", returnPercent: -0.5 },
+  { period: "2026-03", returnPercent: 2.8 },
+  { period: "2026-04", returnPercent: 1.1 },
+  { period: "2026-05", returnPercent: -0.7 },
+  { period: "2026-06", returnPercent: 2.6 },
+  { period: "2026-07", returnPercent: 1.5 },
+];
 
 export interface GitHubReportPublisherOptions {
   token: string;
@@ -110,13 +162,24 @@ export class ReportingService {
       };
     }
 
+    const performance = await this.store.getSectorPerformance();
+    const currentAllocation =
+      (await this.store.getLatestSectorAllocation()) ?? BASE_SECTOR_ALLOCATION;
+    const sectorAllocation = calculateAdaptiveAllocation(performance, currentAllocation);
+    await this.store.saveSectorAllocation(
+      completedPeriod,
+      sectorAllocation,
+      performance,
+      now.toISOString(),
+    );
     const report = buildOfficialReport({
       snapshots,
       completedPeriod,
       startingNav: this.startingNav,
       inceptionDate: this.inceptionDate,
+      sectorAllocation,
     });
-    if (!report.months.some((month) => month.period === completedPeriod)) {
+    if (!report.liveMonths.some((month) => month.period === completedPeriod)) {
       throw new Error(`No reconciled PredArena snapshot exists for ${completedPeriod}`);
     }
 
@@ -249,6 +312,7 @@ export function buildOfficialReport(input: {
   completedPeriod: string;
   startingNav: number;
   inceptionDate: string;
+  sectorAllocation?: SectorAllocation[];
 }): PublicFundReport {
   const latestByPeriod = new Map<string, StoredPortfolioSnapshot>();
 
@@ -271,12 +335,14 @@ export function buildOfficialReport(input: {
     .map(([period, snapshot]) => ({ period, closingNav: snapshot.nav }));
 
   return PublicFundReportSchema.parse({
+    schemaVersion: 2,
     fundName: "Casus Strategies",
     startingNav: input.startingNav,
-    inceptionDate: input.inceptionDate,
+    liveInceptionDate: input.inceptionDate,
     asOf: periodEndDate(input.completedPeriod),
-    status: "official",
-    months,
+    backtestMonths: APPROVED_BACKTEST_MONTHS,
+    liveMonths: months,
+    sectorAllocation: input.sectorAllocation ?? BASE_SECTOR_ALLOCATION,
   });
 }
 
@@ -293,18 +359,16 @@ function mergeOfficialHistory(
   current: PublicFundReport,
   candidate: PublicFundReport,
 ): PublicFundReport {
-  if (current.status === "illustrative") {
-    return PublicFundReportSchema.parse(candidate);
-  }
   if (
     current.startingNav !== candidate.startingNav ||
-    current.inceptionDate !== candidate.inceptionDate
+    (current.liveInceptionDate !== null &&
+      current.liveInceptionDate !== candidate.liveInceptionDate)
   ) {
     throw new Error("Published inception data does not match the reconciled report");
   }
 
-  const months = new Map(current.months.map((month) => [month.period, month]));
-  for (const month of candidate.months) {
+  const months = new Map(current.liveMonths.map((month) => [month.period, month]));
+  for (const month of candidate.liveMonths) {
     const published = months.get(month.period);
     if (published && Math.abs(published.closingNav - month.closingNav) > 0.000_001) {
       throw new Error(`Published NAV for ${month.period} cannot be rewritten`);
@@ -314,16 +378,37 @@ function mergeOfficialHistory(
 
   return PublicFundReportSchema.parse({
     ...candidate,
-    months: [...months.values()].sort((left, right) => left.period.localeCompare(right.period)),
+    backtestMonths: current.backtestMonths,
+    liveMonths: [...months.values()].sort((left, right) => left.period.localeCompare(right.period)),
   });
 }
 
 function parseEncodedReport(file: GitHubFile): PublicFundReport {
   try {
-    return PublicFundReportSchema.parse(JSON.parse(decodeBase64(file.content)));
+    const parsed = JSON.parse(decodeBase64(file.content)) as unknown;
+    const current = PublicFundReportSchema.safeParse(parsed);
+    if (current.success) {
+      return current.data;
+    }
+    return migrateLegacyReport(LegacyPublicFundReportSchema.parse(parsed));
   } catch {
     throw new Error("Existing public report is invalid; refusing to replace it");
   }
+}
+
+export function migrateLegacyReport(
+  legacy: z.infer<typeof LegacyPublicFundReportSchema>,
+): PublicFundReport {
+  return PublicFundReportSchema.parse({
+    schemaVersion: 2,
+    fundName: "Casus Strategies",
+    startingNav: legacy.startingNav,
+    liveInceptionDate: legacy.status === "official" ? legacy.inceptionDate : null,
+    asOf: legacy.asOf,
+    backtestMonths: APPROVED_BACKTEST_MONTHS,
+    liveMonths: legacy.status === "official" ? legacy.months : [],
+    sectorAllocation: BASE_SECTOR_ALLOCATION,
+  });
 }
 
 function newYorkDate(now: Date): string {

@@ -1,34 +1,74 @@
-import type { FundReport, MonthEndRecord } from "./data/fund-report";
+// This file combines historical model months with append-only live months for public display.
 
-export interface MonthlyReturn extends MonthEndRecord {
+import type { LiveMonth, PublicFundReportV2 } from "./data/fund-report";
+
+export interface MonthlyReturn {
+  period: string;
   returnPercent: number;
+  recordType: "backtest" | "live";
 }
 
-export function calculateMonthlyReturns(report: FundReport): MonthlyReturn[] {
-  return report.months.map((month, index) => {
-    const previousNav = index === 0 ? report.startingNav : report.months[index - 1].closingNav;
-    const returnPercent = (month.closingNav / previousNav - 1) * 100;
+export interface LiveProgressPoint extends LiveMonth {
+  label: string;
+  cumulativeReturnPercent: number;
+}
 
-    return { ...month, returnPercent };
+export function calculateLiveMonthlyReturns(report: PublicFundReportV2): MonthlyReturn[] {
+  return report.liveMonths.map((month, index) => {
+    const previousNav = index === 0 ? report.startingNav : report.liveMonths[index - 1]!.closingNav;
+    return {
+      period: month.period,
+      returnPercent: (month.closingNav / previousNav - 1) * 100,
+      recordType: "live",
+    };
   });
 }
 
-export function getLatestMonthlyReturns(report: FundReport, count = 6): MonthlyReturn[] {
+export function getLatestMonthlyReturns(report: PublicFundReportV2, count = 6): MonthlyReturn[] {
   if (count <= 0) {
     return [];
   }
 
-  return calculateMonthlyReturns(report).slice(-count);
-}
-
-export function calculateTotalReturn(report: FundReport): number {
-  const latestMonth = report.months.at(-1);
-
-  if (!latestMonth) {
-    return 0;
+  const records = new Map<string, MonthlyReturn>();
+  for (const month of report.backtestMonths) {
+    records.set(month.period, { ...month, recordType: "backtest" });
+  }
+  for (const month of calculateLiveMonthlyReturns(report)) {
+    records.set(month.period, month);
   }
 
-  return (latestMonth.closingNav / report.startingNav - 1) * 100;
+  return [...records.values()]
+    .sort((left, right) => left.period.localeCompare(right.period))
+    .slice(-count);
+}
+
+export function getLiveProgression(report: PublicFundReportV2): LiveProgressPoint[] {
+  if (report.liveMonths.length === 0) {
+    return [];
+  }
+
+  const inceptionPeriod = report.liveInceptionDate?.slice(0, 7) ?? report.liveMonths[0]!.period;
+  return [
+    {
+      period: inceptionPeriod,
+      label: "Inception",
+      closingNav: report.startingNav,
+      cumulativeReturnPercent: 0,
+    },
+    ...report.liveMonths.map((month) => ({
+      ...month,
+      label: formatPeriod(month.period, true),
+      cumulativeReturnPercent: (month.closingNav / report.startingNav - 1) * 100,
+    })),
+  ];
+}
+
+export function getLatestNav(report: PublicFundReportV2): number {
+  return report.liveMonths.at(-1)?.closingNav ?? report.startingNav;
+}
+
+export function calculateTotalReturn(report: PublicFundReportV2): number {
+  return (getLatestNav(report) / report.startingNav - 1) * 100;
 }
 
 export function formatPercent(value: number): string {
@@ -40,13 +80,12 @@ export function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    minimumFractionDigits: 2,
+    maximumFractionDigits: 0,
   }).format(value);
 }
 
 export function formatPeriod(period: string, includeYear = false): string {
   const date = new Date(`${period}-01T00:00:00Z`);
-
   return new Intl.DateTimeFormat("en-US", {
     month: "long",
     year: includeYear ? "numeric" : undefined,

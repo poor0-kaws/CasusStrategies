@@ -7,6 +7,15 @@ const isoDateTimeSchema = z.string().datetime({ offset: true });
 export const venueSchema = z.enum(["kalshi", "polymarket"]);
 export type Venue = z.infer<typeof venueSchema>;
 
+export const researchCategorySchema = z.enum([
+  "weather",
+  "economics",
+  "public_policy",
+  "legal_regulatory",
+  "corporate_events",
+]);
+export type ResearchCategory = z.infer<typeof researchCategorySchema>;
+
 export const contractFactsSchema = z.object({
   subjectKey: z.string().min(1),
   metricKey: z.string().min(1),
@@ -116,7 +125,7 @@ export const forecastSchema = z
     marketPrior: probabilitySchema,
     likelihoodRatios: z.array(z.number().finite().positive()),
     modelFamily: z.string().min(1),
-    category: z.enum(["weather", "economics"]),
+    category: researchCategorySchema,
   })
   .refine(
     (forecast) =>
@@ -129,10 +138,12 @@ export type Forecast = z.infer<typeof forecastSchema>;
 export const tradeIntentSchema = z.object({
   intentId: z.string().min(1),
   forecastId: z.string().min(1),
-  strategy: z.literal("slow_value_v1"),
+  strategy: z.enum(["slow_value_v1", "verified_hedge_v1"]),
+  category: researchCategorySchema,
   venue: venueSchema,
   ticker: z.string().min(1),
   relatedEventClusterId: z.string().min(1),
+  hedgePlanId: z.string().min(1).optional(),
   action: z.literal("buy"),
   yesNo: z.enum(["yes", "no"]),
   count: z.number().int().positive(),

@@ -1,88 +1,90 @@
+// This file explains Casus Strategies at a high level without exposing proprietary trade logic.
+
 import { AllocationDonut } from "../components/AllocationDonut";
+import { fundReport } from "../data/fund-report";
 
 const principles = [
   {
     number: "01",
-    title: "Start with exact rules",
-    copy: "A market is considered only when its deadline, resolution source, and edge cases can be understood clearly.",
+    title: "Interpret public evidence",
+    copy: "We monitor approved primary sources across weather, economics, public policy, legal and regulatory events, and corporate disclosures. Information is time-stamped and evaluated against exact contract terms.",
   },
   {
     number: "02",
-    title: "Use public evidence",
-    copy: "Research begins with time-stamped government, weather, and economic sources available to every participant.",
+    title: "Price uncertainty conservatively",
+    copy: "Multiple independent views are combined with market prices and calibrated for uncertainty. An opportunity must remain attractive after execution costs and a conservative margin for error.",
   },
   {
     number: "03",
-    title: "Forecast conservatively",
-    copy: "Several independent estimates are combined, calibrated, and reduced for uncertainty before prices are compared.",
+    title: "Construct risk-aware exposure",
+    copy: "Capital is allocated across sectors and connected outcomes rather than treating every contract as independent. Position size follows the portfolio risk it adds, not the confidence of one forecast alone.",
   },
-  {
-    number: "04",
-    title: "Respect execution",
-    copy: "A simulated trade must still survive visible liquidity, fees, slippage, concentration, and loss limits.",
-  },
-];
+] as const;
 
 export function MethodologyPage() {
   return (
-    <div className="page-content">
+    <div className="page-content methodology-page">
       <header className="content-width page-intro methodology-intro">
-        <div className="eyebrow">Research discipline</div>
+        <p className="eyebrow">Investment discipline</p>
         <h1>Methodology</h1>
         <p>
-          Casus studies places where careful reading and measured probability updates can matter
-          more than raw trading speed.
+          Casus is designed for markets where understanding public information and connected
+          outcomes matters more than raw speed.
         </p>
       </header>
 
-      <section className="method-band" aria-labelledby="process-heading">
-        <div className="content-width method-layout">
-          <div>
-            <div className="eyebrow">Core process</div>
-            <h2 id="process-heading">From evidence to decision</h2>
-          </div>
-          <ol className="principle-list">
-            {principles.map((principle) => (
-              <li key={principle.number}>
-                <span className="principle-number" aria-hidden="true">
-                  {principle.number}
-                </span>
-                <div>
-                  <h3>{principle.title}</h3>
-                  <p>{principle.copy}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
+      <section aria-labelledby="principles-heading" className="method-band">
+        <div className="content-width method-heading">
+          <p className="eyebrow">Three public principles</p>
+          <h2 id="principles-heading">A disciplined path from evidence to exposure</h2>
         </div>
+        <ol className="content-width principle-list">
+          {principles.map((principle) => (
+            <li key={principle.number}>
+              <span className="principle-number" aria-hidden="true">
+                {principle.number}
+              </span>
+              <h3>{principle.title}</h3>
+              <p>{principle.copy}</p>
+            </li>
+          ))}
+        </ol>
       </section>
 
       <section
-        className="content-width section-block allocation-section"
         aria-labelledby="allocation-heading"
+        className="content-width section-block allocation-section"
       >
         <div className="allocation-copy">
-          <div className="eyebrow">Capital posture</div>
-          <h2 id="allocation-heading">Risk before opportunity</h2>
+          <p className="eyebrow">Research allocation</p>
+          <h2 id="allocation-heading">Diversified by source of uncertainty</h2>
           <p>
-            At least 80% of paper capital remains unallocated in version one. Weather and economics
-            share a maximum 20% open-exposure budget; these limits are ceilings, not targets.
+            The starting mix emphasizes weather and economics while maintaining meaningful research
+            capacity across policy, legal, regulatory, and corporate events. Weights adjust slowly
+            only after each sector develops enough resolved evidence.
           </p>
         </div>
-        <AllocationDonut />
+        <AllocationDonut allocations={fundReport.sectorAllocation} />
       </section>
 
-      <section className="research-band" aria-labelledby="frontier-heading">
-        <div className="content-width research-layout">
+      <section aria-labelledby="hedging-heading" className="hedging-band">
+        <div className="content-width hedging-layout">
           <div>
-            <div className="eyebrow">Research frontier</div>
-            <h2 id="frontier-heading">Relationships without shortcuts</h2>
+            <p className="eyebrow">Portfolio construction</p>
+            <h2 id="hedging-heading">Hedging is part of the decision, not an afterthought.</h2>
           </div>
-          <p>
-            Casus also studies logically connected markets, such as equivalent questions and
-            threshold ladders. This work remains research-only until each relationship and every
-            required simulated order can be verified by ordinary, repeatable rules.
-          </p>
+          <div className="hedging-copy">
+            <p>
+              Related markets are grouped into shared scenarios so offsetting outcomes are measured
+              together. Verified two-leg structures may reduce event risk when both sides remain
+              executable under conservative assumptions.
+            </p>
+            <p>
+              Exposure is limited at the market, event cluster, sector, and total portfolio levels.
+              When a hedge cannot be completed as planned, new activity stops until positions and
+              records agree again.
+            </p>
+          </div>
         </div>
       </section>
     </div>

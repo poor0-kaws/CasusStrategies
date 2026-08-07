@@ -1,93 +1,117 @@
-import { ArrowRight, CalendarDays, CircleDollarSign, ShieldCheck } from "lucide-react";
+// This file presents the fund identity, operating limits, live NAV, and public process overview.
+
+import { ArrowRight } from "lucide-react";
 
 import { AppLink } from "../components/AppLink";
 import { FundChart } from "../components/FundChart";
 import { fundReport } from "../data/fund-report";
-import { calculateTotalReturn, formatCurrency, formatPercent, formatPeriod } from "../reporting";
+import { calculateTotalReturn, formatCurrency, formatPercent, getLatestNav } from "../reporting";
+
+const fundFacts = [
+  ["Fund style", "AI-native event driven"],
+  ["Strategy focus", "Public-information repricing"],
+  ["Research universe", "Five supported sectors"],
+  ["Capital deployment", "Adaptive and risk weighted"],
+  ["Gross exposure limit", "75%"],
+  ["Scenario-risk limit", "25%"],
+] as const;
+
+const disciplines = [
+  {
+    number: "01",
+    title: "Interpret",
+    copy: "Specialized systems monitor official public information and connect each factual change to the contracts it can affect.",
+  },
+  {
+    number: "02",
+    title: "Price",
+    copy: "Independent forecasts are calibrated against the market and reduced for uncertainty, costs, and execution conditions.",
+  },
+  {
+    number: "03",
+    title: "Construct",
+    copy: "Positions are sized together, with related outcomes treated as one risk cluster and hedges evaluated before capital is deployed.",
+  },
+] as const;
 
 export function OverviewPage() {
-  const latestMonth = fundReport.months.at(-1);
-  const latestNav = latestMonth?.closingNav ?? fundReport.startingNav;
   const totalReturn = calculateTotalReturn(fundReport);
-  const dataStatus =
-    fundReport.status === "official"
-      ? "Official PredArena paper results through the latest completed month"
-      : "Illustrative preview. Shadow mode submits no paper orders and has no official record";
-  const navLabel = fundReport.status === "official" ? "Simulated NAV" : "Illustrative NAV";
-  const returnLabel = fundReport.status === "official" ? "Overall return" : "Illustrative return";
+  const hasLiveMonths = fundReport.liveMonths.length > 0;
 
   return (
     <>
-      <section className="hero-band">
-        <div className="content-width hero-content">
-          <div className="eyebrow">Independent paper fund</div>
-          <h1>Casus Strategies</h1>
-          <p className="hero-summary">
-            Patient prediction-market research built around public evidence, conservative forecasts,
-            and controlled risk.
-          </p>
-          <div className="paper-notice" role="note">
-            <ShieldCheck aria-hidden="true" size={20} />
-            <span>Research simulation only. No real money is traded or managed.</span>
+      <section className="overview-intro">
+        <div className="content-width intro-grid">
+          <div>
+            <p className="eyebrow">AI-native prediction-market fund</p>
+            <h1>Casus Strategies</h1>
           </div>
+          <p className="hero-summary">
+            We combine machine-scale public research, calibrated forecasting, and portfolio-level
+            hedging to identify event-driven opportunities across prediction markets.
+          </p>
         </div>
       </section>
 
-      <section className="metric-band" aria-label="Fund summary">
+      <section aria-label="Fund facts" className="content-width fund-facts">
+        {fundFacts.map(([label, value]) => (
+          <div className="fund-fact" key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </section>
+
+      <section aria-label="Fund summary" className="metric-band">
         <div className="content-width metric-grid">
           <div className="metric-item">
-            <span className="metric-label">
-              <CircleDollarSign aria-hidden="true" size={17} /> {navLabel}
-            </span>
-            <strong>{formatCurrency(latestNav)}</strong>
+            <span className="metric-label">Live NAV</span>
+            <strong>{formatCurrency(getLatestNav(fundReport))}</strong>
           </div>
           <div className="metric-item">
-            <span className="metric-label">{returnLabel}</span>
-            <strong className={totalReturn >= 0 ? "value-positive" : "value-negative"}>
+            <span className="metric-label">Overall fund return</span>
+            <strong className={totalReturn < 0 ? "value-negative" : "value-positive"}>
               {formatPercent(totalReturn)}
             </strong>
           </div>
           <div className="metric-item">
-            <span className="metric-label">
-              <CalendarDays aria-hidden="true" size={17} /> Report through
-            </span>
-            <strong>
-              {latestMonth ? formatPeriod(latestMonth.period, true) : "Pre-inception"}
+            <span className="metric-label">Reporting status</span>
+            <strong className="status-value">
+              {hasLiveMonths ? "Current through latest close" : "Awaiting first month close"}
             </strong>
           </div>
         </div>
       </section>
 
-      <section className="content-width section-block" aria-labelledby="progress-heading">
+      <section aria-labelledby="progress-heading" className="content-width section-block">
         <div className="section-heading-row">
           <div>
-            <div className="eyebrow">Month-end record</div>
-            <h2 id="progress-heading">Fund value progression</h2>
+            <p className="eyebrow">Live monthly record</p>
+            <h2 id="progress-heading">Fund progression</h2>
           </div>
-          <p className="data-status">{dataStatus}</p>
+          <p className="section-note">Month-end NAV · Since activation</p>
         </div>
         <FundChart report={fundReport} />
       </section>
 
-      <section className="principles-band">
-        <div className="content-width principles-grid">
+      <section className="discipline-band">
+        <div className="content-width discipline-heading">
           <div>
-            <div className="eyebrow">Operating posture</div>
-            <h2>Deliberate by design</h2>
+            <p className="eyebrow">Research architecture</p>
+            <h2>Evidence becomes exposure only after it survives the portfolio.</h2>
           </div>
-          <div className="principle-copy">
-            <p>
-              Casus focuses on slower weather and economic markets where careful interpretation
-              matters more than millisecond speed.
-            </p>
-            <p>
-              Every candidate must survive contract review, evidence checks, conservative pricing,
-              and portfolio risk limits before a simulated order can be placed.
-            </p>
-            <AppLink className="text-link" to="/methodology">
-              Read the methodology <ArrowRight aria-hidden="true" size={17} />
-            </AppLink>
-          </div>
+          <AppLink className="text-link text-link-light" to="/methodology">
+            Explore our methodology <ArrowRight aria-hidden="true" size={17} />
+          </AppLink>
+        </div>
+        <div className="content-width discipline-grid">
+          {disciplines.map((discipline) => (
+            <article className="discipline-item" key={discipline.number}>
+              <span>{discipline.number}</span>
+              <h3>{discipline.title}</h3>
+              <p>{discipline.copy}</p>
+            </article>
+          ))}
         </div>
       </section>
     </>

@@ -1,18 +1,34 @@
+// This file reads the sanitized monthly report bundled into the static website.
+
 import generatedReport from "./generated/fund-report.json";
 
-export interface MonthEndRecord {
+export type ResearchCategory =
+  "weather" | "economics" | "public_policy" | "legal_regulatory" | "corporate_events";
+
+export interface BacktestMonth {
+  period: string;
+  returnPercent: number;
+}
+
+export interface LiveMonth {
   period: string;
   closingNav: number;
 }
 
-export interface FundReport {
-  fundName: string;
-  startingNav: number;
-  inceptionDate: string;
-  asOf: string;
-  status: "illustrative" | "official";
-  months: MonthEndRecord[];
+export interface SectorAllocation {
+  category: ResearchCategory;
+  percent: number;
 }
 
-// The Worker replaces only this generated public data after a verified paper month closes.
-export const fundReport = generatedReport as FundReport;
+export interface PublicFundReportV2 {
+  schemaVersion: 2;
+  fundName: "Casus Strategies";
+  startingNav: number;
+  liveInceptionDate: string | null;
+  asOf: string;
+  backtestMonths: BacktestMonth[];
+  liveMonths: LiveMonth[];
+  sectorAllocation: SectorAllocation[];
+}
+
+export const fundReport = generatedReport as PublicFundReportV2;

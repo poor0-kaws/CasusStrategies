@@ -6,6 +6,7 @@ const intent: TradeIntent = {
   intentId: "intent-1",
   forecastId: "forecast-1",
   strategy: "slow_value_v1",
+  category: "weather",
   venue: "kalshi",
   ticker: "WEATHER-NYC",
   relatedEventClusterId: "weather-nyc-2026-08-08",
@@ -45,7 +46,7 @@ describe("risk gate", () => {
   it("reports every failed rule instead of hiding later failures", () => {
     const result = evaluateRisk({
       ...validInput,
-      intent: { ...intent, count: 30 },
+      intent: { ...intent, count: 60 },
       ambiguityScore: 0.8,
       visibleExitContracts: 1,
       closesAt: "2026-08-07T13:00:00Z",
@@ -58,5 +59,19 @@ describe("risk gate", () => {
     expect(result.reasons).toContain("API response is unknown");
     expect(result.reasons).toContain("Contract rules are too ambiguous");
     expect(result.reasons).toContain("Per-market loss limit exceeded");
+  });
+
+  it("enforces gross, sector, and scenario loss independently", () => {
+    const result = evaluateRisk({
+      ...validInput,
+      grossDeployed: 748,
+      sectorExposure: 123,
+      portfolioScenarioLoss: 248,
+    });
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("Gross deployment limit exceeded");
+    expect(result.reasons).toContain("Sector loss limit exceeded");
+    expect(result.reasons).toContain("Portfolio scenario-loss limit exceeded");
   });
 });
