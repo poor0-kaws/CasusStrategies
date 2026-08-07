@@ -1,0 +1,94 @@
+{
+  "now": "2026-08-07T12:00:00.000Z",
+  "market": {
+    "id": "WX-TEST",
+    "market_id": "WX-TEST",
+    "ticker": "WX-TEST",
+    "venue": "kalshi",
+    "title": "Will the weather temperature exceed 90 degrees?",
+    "closes_at": "2026-08-09T18:00:00.000Z",
+    "yes_price": 0.25,
+    "no_price": 0.7,
+    "volume": 5000,
+    "liquidity": 2000,
+    "min_order_size": 1,
+    "min_tick_size": 0.01
+  },
+  "book": {
+    "ticker": "WX-TEST",
+    "venue": "kalshi",
+    "orderbook": {
+      "yes": [{ "price": 0.25, "quantity": 100 }],
+      "no": [{ "price": 0.7, "quantity": 100 }]
+    },
+    "fees": { "type": "included_in_preview" }
+  },
+  "rules": {
+    "market": {
+      "ticker": "WX-TEST",
+      "title": "Will the weather temperature exceed 90 degrees?",
+      "rules_primary": "YES resolves if the official temperature exceeds 90 degrees before the deadline.",
+      "close_time": "2026-08-09T18:00:00.000Z",
+      "settlement_source_url": "https://api.weather.gov/gridpoints/TEST/1,1/forecast"
+    }
+  },
+  "source": {
+    "title": "Official forecast",
+    "updated": "2026-08-07T11:30:00.000Z",
+    "forecast": "The official forecast now expects a high of 94 degrees."
+  },
+  "agents": {
+    "triage": { "rankedMarketIds": ["WX-TEST"] },
+    "contract": {
+      "contracts": [
+        {
+          "marketId": "WX-TEST",
+          "question": "Will the weather temperature exceed 90 degrees?",
+          "yesCondition": "The official temperature exceeds 90 degrees.",
+          "noCondition": "The official temperature does not exceed 90 degrees.",
+          "deadline": "2026-08-09T18:00:00.000Z",
+          "resolutionSource": "https://api.weather.gov/gridpoints/TEST/1,1/forecast",
+          "edgeCases": ["missing observation"],
+          "ambiguityScore": 0.05,
+          "facts": {
+            "subjectKey": "test-location",
+            "metricKey": "temperature",
+            "outcomeKey": "above-90",
+            "thresholdOperator": "gt",
+            "thresholdValue": 90,
+            "unit": "fahrenheit",
+            "geographyKey": "test-location"
+          }
+        }
+      ],
+      "relationships": []
+    },
+    "evidence": {
+      "evidence": [
+        {
+          "marketId": "WX-TEST",
+          "category": "weather",
+          "baseRateProbability": 0.8,
+          "structuredProbability": 0.85,
+          "likelihoodRatios": [
+            {
+              "value": 2,
+              "sourceUrl": "https://api.weather.gov/gridpoints/TEST/1,1/forecast",
+              "factualChange": "The official forecast rose to 94 degrees."
+            }
+          ],
+          "uncertaintyWidth": 0.08
+        }
+      ]
+    },
+    "skeptic": {
+      "reviews": [
+        {
+          "marketId": "WX-TEST",
+          "likelihoodRatio": 0.95,
+          "concerns": ["Forecast error remains possible."]
+        }
+      ]
+    }
+  }
+}

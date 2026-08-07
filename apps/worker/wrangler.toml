@@ -1,0 +1,39 @@
+name = "casus-strategies-worker"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+workers_dev = true
+
+[vars]
+TRADING_MODE = "shadow"
+PREDARENA_BASE_URL = "https://predarena.org"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_MODEL_TRIAGE = "llama-3.1-8b-instant"
+GROQ_MODEL_CONTRACT = "openai/gpt-oss-120b"
+GROQ_MODEL_EVIDENCE = "openai/gpt-oss-20b"
+GROQ_MODEL_SKEPTIC = "llama-3.3-70b-versatile"
+GITHUB_REPOSITORY = "poor0-kaws/Kalshi_Weather"
+GITHUB_REPORTS_BRANCH = "main"
+REPORT_PATH = "apps/web/src/data/generated/fund-report.json"
+FUND_INCEPTION_DATE = "replace-when-paper-mode-is-approved"
+FUND_STARTING_NAV = "1000"
+
+[[d1_databases]]
+binding = "RESEARCH_DB"
+database_name = "casus-research"
+database_id = "a20c8c9f-0c14-4e37-ae53-e5c5b9fd2ad8"
+migrations_dir = "migrations"
+
+[[durable_objects.bindings]]
+name = "FUND_COORDINATOR"
+class_name = "FundCoordinator"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["FundCoordinator"]
+
+[triggers]
+crons = ["0 * * * *"]
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1

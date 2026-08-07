@@ -1,0 +1,26 @@
+{
+  "name": "@casus/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "db:migrate:local": "wrangler d1 migrations apply casus-research --local",
+    "db:migrate:remote": "wrangler d1 migrations apply casus-research --remote",
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@casus/core": "*",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250807.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.28.1"
+  }
+}
