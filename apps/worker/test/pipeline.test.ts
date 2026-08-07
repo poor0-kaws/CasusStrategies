@@ -101,6 +101,7 @@ function createReconciliationPipeline(input: {
   setTradingFreeze: ReturnType<typeof vi.fn>;
 }) {
   const store = {
+    getTradingFreeze: vi.fn().mockResolvedValue(null),
     listLocalOrders: vi.fn().mockResolvedValue(input.localOrders),
     finalizeOrder: input.finalizeOrder,
     appendRemoteFills: vi.fn(),

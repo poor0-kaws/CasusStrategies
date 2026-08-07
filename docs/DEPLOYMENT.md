@@ -29,6 +29,9 @@ Also replace `GITHUB_REPOSITORY` with the exact `owner/repository`. Leave `TRADI
 `GROQ_MODEL_*` values are ordinary configuration, so a role's model can change without changing its
 instructions or API key.
 
+Replace `SOURCE_CONTACT_EMAIL` with a monitored address. NWS and SEC use it in the identifying
+request user agent. Congress.gov and FEC keys are free, but must still stay server-side.
+
 ## 3. Add secrets through hidden prompts
 
 Run each command separately. Wrangler will ask for the value without putting it in source code.
@@ -37,6 +40,8 @@ Run each command separately. Wrangler will ask for the value without putting it 
 npx wrangler secret put PREDARENA_API_KEY --config apps/worker/wrangler.toml
 npx wrangler secret put PREDARENA_WEBHOOK_SECRET --config apps/worker/wrangler.toml
 npx wrangler secret put GROQ_API_KEY --config apps/worker/wrangler.toml
+npx wrangler secret put CONGRESS_API_KEY --config apps/worker/wrangler.toml
+npx wrangler secret put FEC_API_KEY --config apps/worker/wrangler.toml
 npx wrangler secret put GITHUB_REPORTS_TOKEN --config apps/worker/wrangler.toml
 npx wrangler secret list --config apps/worker/wrangler.toml
 ```
@@ -65,8 +70,8 @@ Store the one-time webhook signing secret as `PREDARENA_WEBHOOK_SECRET`. The wor
 unsigned or old webhook requests.
 
 Subscribe to `order.executed`, `resting_order.filled`, `resting_order.cancelled`, and
-`trade.settled`. Version one submits FOK orders, but listening to every account-changing event makes
-reconciliation safer.
+`trade.settled`. Normal entries use FOK orders; a pre-approved orphan-leg unwind may use IOC.
+Listening to every account-changing event makes reconciliation safer.
 
 ## 5. Deploy the static website
 

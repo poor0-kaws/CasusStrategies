@@ -1,8 +1,8 @@
 # Casus Strategies
 
-Casus Strategies is a free, AI-assisted prediction-market paper fund. It researches a small
-set of slow-moving weather and economics contracts, tests every possible order against live
-PredArena books, and records simulated performance without sending real-money orders.
+Casus Strategies is a free, AI-native prediction-market research fund. It studies a small daily
+set across weather, economics, public policy, legal and regulatory events, and corporate events.
+Every possible order is checked against live PredArena books and portfolio-wide scenario risk.
 
 The system starts in shadow mode. Shadow mode collects data and previews paper orders, but it
 does not submit them. Paper execution must be enabled manually after seven clean days.
@@ -32,6 +32,7 @@ bundle. The worker uses mocked services in tests and remains in shadow mode by d
 - Kalshi and Polymarket adapters are read-only and never receive trading credentials.
 - Models return structured research. They cannot call the broker or create positions.
 - Unknown responses, stale evidence, malformed model output, or exhausted quotas mean no trade.
+- Only deterministically verified two-market relationships can produce a paired hedge.
 - Paid models, paid replay, paid infrastructure, and automatic paid fallbacks are not supported.
 
 ## Deployment overview

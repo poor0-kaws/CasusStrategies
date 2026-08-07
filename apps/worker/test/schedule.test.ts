@@ -11,7 +11,12 @@ describe("getScheduledWindow", () => {
       hour: 8,
       runKey: "research:2026-08-07:08",
       isMorningSelection: true,
+      maximumModelRequests: 5,
     });
+  });
+
+  it("reserves the evening window for reconciliation without model calls", () => {
+    expect(getScheduledWindow(new Date("2026-08-08T00:00:00.000Z"))?.maximumModelRequests).toBe(0);
   });
 
   it("recognizes 8 AM New York during standard time", () => {

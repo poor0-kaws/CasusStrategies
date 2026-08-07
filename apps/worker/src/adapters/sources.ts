@@ -1,5 +1,6 @@
 import { sha256Hex } from "../crypto";
 import type { StoredSourceDocument } from "../contracts";
+import type { ResearchCategory } from "@casus/core";
 
 const WEATHER_HOSTS = new Set(["api.weather.gov", "www.weather.gov", "noaa.gov", "www.noaa.gov"]);
 const ECONOMICS_HOSTS = new Set([
@@ -14,23 +15,46 @@ const ECONOMICS_HOSTS = new Set([
   "home.treasury.gov",
   "fiscaldata.treasury.gov",
 ]);
+const PUBLIC_POLICY_HOSTS = new Set([
+  "api.congress.gov",
+  "www.congress.gov",
+  "api.open.fec.gov",
+  "www.fec.gov",
+  "www.federalregister.gov",
+  "api.federalregister.gov",
+]);
+const LEGAL_REGULATORY_HOSTS = new Set([
+  "www.supremecourt.gov",
+  "supremecourt.gov",
+  "www.uscourts.gov",
+  "uscourts.gov",
+  "www.federalregister.gov",
+  "api.federalregister.gov",
+]);
+const CORPORATE_EVENT_HOSTS = new Set(["data.sec.gov", "www.sec.gov", "sec.gov"]);
 
 interface OfficialSourceOptions {
   fetcher?: typeof fetch;
   now?: () => Date;
+  contactEmail?: string;
+  apiKeysByHost?: Record<string, { parameter: string; value: string }>;
 }
 
 abstract class OfficialSourceAdapter {
   private readonly fetcher: typeof fetch;
   private readonly now: () => Date;
+  private readonly contactEmail: string;
+  private readonly apiKeysByHost: Record<string, { parameter: string; value: string }>;
 
   protected constructor(
-    private readonly sourceType: "weather" | "economics",
+    private readonly sourceType: ResearchCategory,
     private readonly allowedHosts: Set<string>,
     options: OfficialSourceOptions,
   ) {
     this.fetcher = options.fetcher ?? fetch;
     this.now = options.now ?? (() => new Date());
+    this.contactEmail = options.contactEmail?.trim() || "research@casusstrategies.pages.dev";
+    this.apiKeysByHost = options.apiKeysByHost ?? {};
   }
 
   async fetchDocument(urlValue: string): Promise<StoredSourceDocument> {
@@ -40,10 +64,15 @@ abstract class OfficialSourceAdapter {
     }
 
     const observedAt = this.now().toISOString();
-    const response = await this.fetcher(url, {
+    const requestUrl = new URL(url);
+    const apiKey = this.apiKeysByHost[requestUrl.hostname];
+    if (apiKey?.value) {
+      requestUrl.searchParams.set(apiKey.parameter, apiKey.value);
+    }
+    const response = await this.fetcher(requestUrl, {
       headers: {
         Accept: "application/json, text/plain, text/html",
-        "User-Agent": "CasusStrategiesResearch/0.1 contact@example.invalid",
+        "User-Agent": `CasusStrategiesResearch/1.0 (${this.contactEmail})`,
       },
     });
     if (!response.ok) {
@@ -88,20 +117,47 @@ export class EconomicsSourceAdapter extends OfficialSourceAdapter {
   }
 }
 
+export class PublicPolicySourceAdapter extends OfficialSourceAdapter {
+  constructor(options: OfficialSourceOptions = {}) {
+    super("public_policy", PUBLIC_POLICY_HOSTS, options);
+  }
+}
+
+export class LegalRegulatorySourceAdapter extends OfficialSourceAdapter {
+  constructor(options: OfficialSourceOptions = {}) {
+    super("legal_regulatory", LEGAL_REGULATORY_HOSTS, options);
+  }
+}
+
+export class CorporateEventsSourceAdapter extends OfficialSourceAdapter {
+  constructor(options: OfficialSourceOptions = {}) {
+    super("corporate_events", CORPORATE_EVENT_HOSTS, options);
+  }
+}
+
 export class OfficialSourceRouter {
   constructor(
     private readonly weather: WeatherSourceAdapter,
     private readonly economics: EconomicsSourceAdapter,
+    private readonly publicPolicy: PublicPolicySourceAdapter = new PublicPolicySourceAdapter(),
+    private readonly legalRegulatory: LegalRegulatorySourceAdapter = new LegalRegulatorySourceAdapter(),
+    private readonly corporateEvents: CorporateEventsSourceAdapter = new CorporateEventsSourceAdapter(),
   ) {}
 
-  async fetchApproved(
-    url: string,
-    category: "weather" | "economics",
-  ): Promise<StoredSourceDocument> {
+  async fetchApproved(url: string, category: ResearchCategory): Promise<StoredSourceDocument> {
     if (category === "weather") {
       return this.weather.fetchDocument(url);
     }
-    return this.economics.fetchDocument(url);
+    if (category === "economics") {
+      return this.economics.fetchDocument(url);
+    }
+    if (category === "public_policy") {
+      return this.publicPolicy.fetchDocument(url);
+    }
+    if (category === "legal_regulatory") {
+      return this.legalRegulatory.fetchDocument(url);
+    }
+    return this.corporateEvents.fetchDocument(url);
   }
 }
 

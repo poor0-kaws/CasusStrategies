@@ -8,6 +8,7 @@ import type {
   PortfolioSnapshot,
   Relationship,
   RiskDecision,
+  ResearchCategory,
   SourceDocument,
   TradeIntent,
   Venue,
@@ -70,7 +71,7 @@ export interface ParsedContract extends ContractVersion {
 
 export interface StoredSourceDocument {
   id: string;
-  sourceType: "weather" | "economics";
+  sourceType: ResearchCategory;
   title: string;
   url: string;
   excerpt: string;
@@ -111,6 +112,7 @@ export interface PaperOrderRequest {
   maximumPrice: number;
   timeInForce: "FOK" | "IOC";
   clientOrderId: string;
+  strategy?: "slow_value_v1" | "verified_hedge_v1";
   dryRun: boolean;
 }
 

@@ -311,7 +311,7 @@ function toPredArenaOrder(order: Omit<PaperOrderRequest, "dryRun">): Record<stri
     limit_price: order.maximumPrice,
     time_in_force: order.timeInForce,
     client_order_id: order.clientOrderId,
-    strategy: "slow_value_v1",
+    strategy: order.strategy ?? "slow_value_v1",
   };
 }
 

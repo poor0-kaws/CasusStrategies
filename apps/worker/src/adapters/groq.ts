@@ -33,6 +33,7 @@ interface GroqClientOptions {
   baseUrl?: string;
   fetcher?: typeof fetch;
   now?: () => Date;
+  maximumRequestsThisCycle?: number;
 }
 
 export interface GroqResult<T> {
@@ -53,6 +54,8 @@ export class GroqClient {
   private readonly baseUrl: string;
   private readonly fetcher: typeof fetch;
   private readonly now: () => Date;
+  private readonly maximumRequestsThisCycle: number;
+  private requestsThisCycle = 0;
 
   constructor(options: GroqClientOptions) {
     this.apiKey = options.apiKey;
@@ -60,6 +63,7 @@ export class GroqClient {
     this.baseUrl = options.baseUrl ?? "https://api.groq.com/openai/v1";
     this.fetcher = options.fetcher ?? fetch;
     this.now = options.now ?? (() => new Date());
+    this.maximumRequestsThisCycle = options.maximumRequestsThisCycle ?? DAILY_REQUEST_HARD_CAP;
   }
 
   async completeJson<T>(input: {
@@ -113,12 +117,16 @@ export class GroqClient {
     if (!this.apiKey) {
       throw new GroqQuotaError("Groq API key is missing");
     }
+    if (this.requestsThisCycle >= this.maximumRequestsThisCycle) {
+      throw new GroqQuotaError("Scheduled Groq request budget reached");
+    }
 
     const date = newYorkDate(this.now());
     const maximumOutputTokens = input.maxOutputTokens ?? 1_000;
     const estimatedInputTokens = estimateTokens(input.system) + estimateTokens(input.user);
     await this.assertBudget(date, input.model, estimatedInputTokens + maximumOutputTokens);
     await this.reserveUsage(date, input.model, estimatedInputTokens, maximumOutputTokens);
+    this.requestsThisCycle += 1;
 
     const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
       method: "POST",

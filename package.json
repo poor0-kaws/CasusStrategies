@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "A free, AI-assisted prediction-market paper fund.",
+  "description": "A free, AI-native prediction-market research fund.",
   "engines": {
     "node": ">=20"
   },

@@ -1,5 +1,11 @@
 import { sha256Hex } from "../crypto";
-import type { Forecast, Relationship } from "@casus/core";
+import type {
+  Forecast,
+  Relationship,
+  ResearchCategory,
+  SectorAllocation,
+  SectorPerformance,
+} from "@casus/core";
 import type {
   CollectedMarket,
   MarketCandidate,
@@ -332,6 +338,38 @@ export class D1ResearchStore implements ResearchStore {
       .run();
   }
 
+  async getVerifiedRelationships(contractIds: string[]): Promise<Relationship[]> {
+    if (contractIds.length === 0) {
+      return [];
+    }
+
+    const placeholders = contractIds.map(() => "?").join(", ");
+    const rows = await this.database
+      .prepare(
+        `SELECT id, from_market_id, to_market_id, relationship_type, ai_explanation,
+                verification_status, confidence, rule_version, reviewer_status, created_at
+         FROM relationships
+         WHERE verification_status = 'verified'
+           AND from_market_id IN (${placeholders})
+           AND to_market_id IN (${placeholders})`,
+      )
+      .bind(...contractIds, ...contractIds)
+      .all<Record<string, unknown>>();
+
+    return rows.results.map((row) => ({
+      id: String(row.id),
+      leftContractId: String(row.from_market_id),
+      rightContractId: String(row.to_market_id),
+      kind: row.relationship_type as Relationship["kind"],
+      explanation: String(row.ai_explanation),
+      verificationStatus: row.verification_status as Relationship["verificationStatus"],
+      confidence: Number(row.confidence),
+      ruleVersion: String(row.rule_version),
+      reviewerStatus: row.reviewer_status as Relationship["reviewerStatus"],
+      createdAt: String(row.created_at),
+    }));
+  }
+
   async getVerifiedRiskCluster(marketId: string): Promise<{ id: string; tickers: string[] }> {
     const rows = await this.database
       .prepare(
@@ -448,6 +486,108 @@ export class D1ResearchStore implements ResearchStore {
       unrealizedPnl: row.unrealized_pnl,
       positions: positions.get(row.id) ?? [],
     };
+  }
+
+  async getSectorExposure(category: ResearchCategory): Promise<number> {
+    const row = await this.database
+      .prepare(
+        `SELECT COALESCE(SUM(position.maximum_loss), 0) AS exposure
+         FROM position_snapshots position
+         WHERE position.portfolio_snapshot_id = (
+           SELECT id FROM portfolio_snapshots ORDER BY observed_at DESC LIMIT 1
+         )
+         AND EXISTS (
+           SELECT 1 FROM trade_intents intent
+           WHERE intent.ticker = position.ticker AND intent.category = ?
+         )`,
+      )
+      .bind(category)
+      .first<{ exposure: number }>();
+    return row?.exposure ?? 0;
+  }
+
+  async getSectorPerformance(): Promise<SectorPerformance[]> {
+    const rows = await this.database
+      .prepare(
+        `SELECT intent.id AS intent_id, intent.category, intent.yes_no,
+                forecast.market_prior, forecast.probability,
+                fill.quantity, fill.price, fill.fee,
+                settlement.outcome, settlement.settled_at,
+                scenario.one_tick_price, scenario.three_tick_price,
+                scenario.one_second_price, scenario.five_second_price
+         FROM trade_intents intent
+         JOIN orders paper_order ON paper_order.intent_id = intent.id
+         JOIN fills fill ON fill.order_id = paper_order.predarena_order_id
+         JOIN contract_versions contract ON contract.id = (
+           SELECT latest.id FROM contract_versions latest
+           WHERE latest.ticker = intent.ticker
+           ORDER BY latest.observed_at DESC LIMIT 1
+         )
+         JOIN settlements settlement ON settlement.market_id = contract.market_id
+         LEFT JOIN forecasts forecast ON forecast.id = intent.forecast_id
+         LEFT JOIN execution_scenarios scenario ON scenario.intent_id = intent.id
+         WHERE intent.category IS NOT NULL
+         ORDER BY settlement.settled_at ASC, intent.id ASC`,
+      )
+      .all<{
+        intent_id: string;
+        category: ResearchCategory;
+        yes_no: "yes" | "no";
+        market_prior: number | null;
+        probability: number | null;
+        quantity: number;
+        price: number;
+        fee: number;
+        outcome: string;
+        settled_at: string;
+        one_tick_price: number | null;
+        three_tick_price: number | null;
+        one_second_price: number | null;
+        five_second_price: number | null;
+      }>();
+
+    const trades = combineFillRows(rows.results);
+    return researchCategories.map((category) => sectorPerformance(category, trades));
+  }
+
+  async getLatestSectorAllocation(): Promise<SectorAllocation[] | null> {
+    const period = await this.database
+      .prepare("SELECT MAX(period) AS period FROM sector_allocations")
+      .first<{ period: string | null }>();
+    if (!period?.period) {
+      return null;
+    }
+
+    const rows = await this.database
+      .prepare(
+        `SELECT category, percent FROM sector_allocations
+         WHERE period = ? ORDER BY category ASC`,
+      )
+      .bind(period.period)
+      .all<{ category: ResearchCategory; percent: number }>();
+    if (rows.results.length !== researchCategories.length) {
+      return null;
+    }
+    return rows.results.map((row) => ({ category: row.category, percent: row.percent }));
+  }
+
+  async saveSectorAllocation(
+    period: string,
+    allocation: SectorAllocation[],
+    inputs: SectorPerformance[],
+    calculatedAt: string,
+  ): Promise<void> {
+    await this.database.batch(
+      allocation.map((item) =>
+        this.database
+          .prepare(
+            `INSERT OR REPLACE INTO sector_allocations
+             (period, category, percent, inputs_json, calculated_at)
+             VALUES (?, ?, ?, ?, ?)`,
+          )
+          .bind(period, item.category, item.percent, JSON.stringify(inputs), calculatedAt),
+      ),
+    );
   }
 
   async listPortfolioSnapshots(): Promise<StoredPortfolioSnapshot[]> {
@@ -715,17 +855,91 @@ export class D1ResearchStore implements ResearchStore {
   }
 
   async reserveOrderPlacement(date: string, month: string): Promise<boolean> {
+    return this.reserveOrderPlacements(date, month, 1);
+  }
+
+  async reserveOrderPlacements(date: string, month: string, count: number): Promise<boolean> {
+    if (!Number.isInteger(count) || count < 1) {
+      return false;
+    }
     const daily = await this.readQuota(date, "paper_orders_daily");
+    const monthly = await this.readQuota(month, "paper_orders_monthly");
+    if (daily + count > 2 || monthly + count > 800) {
+      return false;
+    }
+
+    const statements = [];
+    for (let index = 0; index < count; index += 1) {
+      statements.push(quotaIncrement(this.database, date, "paper_orders_daily"));
+      statements.push(quotaIncrement(this.database, month, "paper_orders_monthly"));
+    }
+    await this.database.batch(statements);
+    return true;
+  }
+
+  async reserveRiskReducingOrder(date: string, month: string): Promise<boolean> {
+    const daily = await this.readQuota(date, "risk_reducing_orders_daily");
     const monthly = await this.readQuota(month, "paper_orders_monthly");
     if (daily >= 2 || monthly >= 800) {
       return false;
     }
 
     await this.database.batch([
-      quotaIncrement(this.database, date, "paper_orders_daily"),
+      quotaIncrement(this.database, date, "risk_reducing_orders_daily"),
       quotaIncrement(this.database, month, "paper_orders_monthly"),
     ]);
     return true;
+  }
+
+  async saveHedgePlan(input: {
+    id: string;
+    eventClusterId: string;
+    relationshipIds: string[];
+    preHedgeScenarioLoss: number;
+    postHedgeScenarioLoss: number;
+    maximumOrphanLoss: number;
+    status: string;
+    intentIds: string[];
+    now: string;
+  }): Promise<void> {
+    const statements = [
+      this.database
+        .prepare(
+          `INSERT OR REPLACE INTO hedge_plans
+           (id, event_cluster_id, strategy, relationship_ids_json,
+            pre_hedge_scenario_loss, post_hedge_scenario_loss,
+            maximum_orphan_loss, status, created_at, updated_at)
+           VALUES (?, ?, 'verified_hedge_v1', ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          input.id,
+          input.eventClusterId,
+          JSON.stringify(input.relationshipIds),
+          input.preHedgeScenarioLoss,
+          input.postHedgeScenarioLoss,
+          input.maximumOrphanLoss,
+          input.status,
+          input.now,
+          input.now,
+        ),
+      ...input.intentIds.map((intentId, index) =>
+        this.database
+          .prepare(
+            `INSERT OR REPLACE INTO hedge_plan_legs
+             (hedge_plan_id, intent_id, leg_index, status)
+             VALUES (?, ?, ?, ?)`,
+          )
+          .bind(input.id, intentId, index, "planned"),
+      ),
+    ];
+    await this.database.batch(statements);
+  }
+
+  async updateHedgePlanStatus(id: string, status: string, now: string): Promise<void> {
+    await this.database
+      .prepare("UPDATE hedge_plans SET status = ?, updated_at = ? WHERE id = ?")
+      .bind(status, now, id)
+      .run();
   }
 
   async appendEdgeEvaluation(intentId: string, edge: number, createdAt: string): Promise<void> {
@@ -937,14 +1151,17 @@ export class D1ResearchStore implements ResearchStore {
       this.database
         .prepare(
           `INSERT OR IGNORE INTO trade_intents
-           (id, forecast_id, strategy, venue, ticker, action, yes_no, count,
-            maximum_price, minimum_net_edge, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, forecast_id, strategy, category, event_cluster_id, hedge_plan_id,
+            venue, ticker, action, yes_no, count, maximum_price, minimum_net_edge, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           input.intent.id,
           input.intent.forecastId,
           input.intent.strategy,
+          input.intent.category,
+          input.intent.eventClusterId,
+          input.intent.hedgePlanId ?? null,
           input.intent.venue,
           input.intent.ticker,
           input.intent.action,
@@ -958,8 +1175,9 @@ export class D1ResearchStore implements ResearchStore {
         .prepare(
           `INSERT OR IGNORE INTO risk_decisions
            (id, intent_id, approved, reason_codes_json, maximum_loss,
-            open_exposure_after, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            open_exposure_after, gross_exposure_after, sector_exposure_after,
+            scenario_loss_after, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .bind(
           input.risk.id,
@@ -968,6 +1186,9 @@ export class D1ResearchStore implements ResearchStore {
           JSON.stringify(input.risk.reasonCodes ?? []),
           input.risk.maximumLoss,
           input.risk.openExposureAfter,
+          input.risk.grossExposureAfter,
+          input.risk.sectorExposureAfter,
+          input.risk.scenarioLossAfter,
           input.risk.createdAt,
         ),
     ];
@@ -1050,6 +1271,135 @@ export class D1ResearchStore implements ResearchStore {
   }
 }
 
+interface ResolvedSectorTrade {
+  intentId: string;
+  category: ResearchCategory;
+  yesNo: "yes" | "no";
+  marketPrior: number | null;
+  probability: number | null;
+  quantity: number;
+  cost: number;
+  fees: number;
+  conservativePenalty: number;
+  outcome: string;
+  settledAt: string;
+}
+
+const researchCategories: ResearchCategory[] = [
+  "weather",
+  "economics",
+  "public_policy",
+  "legal_regulatory",
+  "corporate_events",
+];
+
+function combineFillRows(
+  rows: Array<{
+    intent_id: string;
+    category: ResearchCategory;
+    yes_no: "yes" | "no";
+    market_prior: number | null;
+    probability: number | null;
+    quantity: number;
+    price: number;
+    fee: number;
+    outcome: string;
+    settled_at: string;
+    one_tick_price: number | null;
+    three_tick_price: number | null;
+    one_second_price: number | null;
+    five_second_price: number | null;
+  }>,
+): ResolvedSectorTrade[] {
+  const trades = new Map<string, ResolvedSectorTrade>();
+  for (const row of rows) {
+    const worstObservedPrice = Math.max(
+      row.price,
+      ...[
+        row.one_tick_price,
+        row.three_tick_price,
+        row.one_second_price,
+        row.five_second_price,
+      ].filter((price): price is number => price !== null && Number.isFinite(price)),
+    );
+    const existing = trades.get(row.intent_id);
+    if (existing) {
+      existing.quantity += row.quantity;
+      existing.cost += row.quantity * row.price;
+      existing.fees += row.fee;
+      existing.conservativePenalty += row.quantity * Math.max(0, worstObservedPrice - row.price);
+      continue;
+    }
+
+    trades.set(row.intent_id, {
+      intentId: row.intent_id,
+      category: row.category,
+      yesNo: row.yes_no,
+      marketPrior: row.market_prior,
+      probability: row.probability,
+      quantity: row.quantity,
+      cost: row.quantity * row.price,
+      fees: row.fee,
+      conservativePenalty: row.quantity * Math.max(0, worstObservedPrice - row.price),
+      outcome: row.outcome,
+      settledAt: row.settled_at,
+    });
+  }
+  return [...trades.values()];
+}
+
+function sectorPerformance(
+  category: ResearchCategory,
+  allTrades: ResolvedSectorTrade[],
+): SectorPerformance {
+  const trades = allTrades.filter((trade) => trade.category === category);
+  const forecasted = trades.filter(
+    (trade) => trade.marketPrior !== null && trade.probability !== null,
+  );
+  const brier = (probability: "marketPrior" | "probability") => {
+    if (forecasted.length === 0) {
+      return 0.25;
+    }
+    return (
+      forecasted.reduce((total, trade) => {
+        const actual = yesOutcome(trade.outcome) ? 1 : 0;
+        return total + ((trade[probability] ?? 0.5) - actual) ** 2;
+      }, 0) / forecasted.length
+    );
+  };
+
+  let runningPnl = 0;
+  let peakPnl = 0;
+  let maximumDrawdown = 0;
+  let conservativePnl = 0;
+  let deployedCapital = 0;
+  for (const trade of trades) {
+    const wins = trade.yesNo === "yes" ? yesOutcome(trade.outcome) : !yesOutcome(trade.outcome);
+    const payout = wins ? trade.quantity : 0;
+    const pnl = payout - trade.cost - trade.fees - trade.conservativePenalty;
+    conservativePnl += pnl;
+    deployedCapital += trade.cost + trade.fees;
+    runningPnl += pnl;
+    peakPnl = Math.max(peakPnl, runningPnl);
+    maximumDrawdown = Math.max(maximumDrawdown, peakPnl - runningPnl);
+  }
+
+  return {
+    category,
+    resolvedTrades: trades.length,
+    completedMonths: new Set(trades.map((trade) => trade.settledAt.slice(0, 7))).size,
+    marketBrier: brier("marketPrior"),
+    modelBrier: brier("probability"),
+    conservativePnl,
+    deployedCapital,
+    maxDrawdownPercent: deployedCapital > 0 ? (maximumDrawdown / deployedCapital) * 100 : 0,
+  };
+}
+
+function yesOutcome(outcome: string): boolean {
+  return ["yes", "true", "1"].includes(outcome.trim().toLowerCase());
+}
+
 function finiteOrZero(value: number): number {
   return Number.isFinite(value) ? value : 0;
 }
@@ -1057,7 +1407,7 @@ function finiteOrZero(value: number): number {
 function sourceFromRow(row: Record<string, unknown>): StoredSourceDocument {
   return {
     id: String(row.id),
-    sourceType: row.source_type as "weather" | "economics",
+    sourceType: row.source_type as StoredSourceDocument["sourceType"],
     title: String(row.title),
     url: String(row.url),
     excerpt: String(row.excerpt),

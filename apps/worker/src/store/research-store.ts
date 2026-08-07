@@ -5,7 +5,13 @@ import type {
   ParsedContract,
   StoredSourceDocument,
 } from "../contracts";
-import type { Forecast, Relationship } from "@casus/core";
+import type {
+  Forecast,
+  Relationship,
+  ResearchCategory,
+  SectorAllocation,
+  SectorPerformance,
+} from "@casus/core";
 import type { RemoteFill } from "../contracts";
 
 export interface GroqUsage {
@@ -75,9 +81,19 @@ export interface ResearchStore {
   appendSourceDocument(document: StoredSourceDocument): Promise<StoredSourceDocument>;
   appendForecast(forecast: Forecast, evidenceSourceIds: string[]): Promise<void>;
   appendRelationship(relationship: Relationship): Promise<void>;
+  getVerifiedRelationships(contractIds: string[]): Promise<Relationship[]>;
   getVerifiedRiskCluster(marketId: string): Promise<{ id: string; tickers: string[] }>;
   appendPortfolioSnapshot(portfolio: PaperPortfolio, observedAt: string): Promise<void>;
   latestPortfolioSnapshot(): Promise<PaperPortfolio | null>;
+  getSectorExposure(category: ResearchCategory): Promise<number>;
+  getSectorPerformance(): Promise<SectorPerformance[]>;
+  getLatestSectorAllocation(): Promise<SectorAllocation[] | null>;
+  saveSectorAllocation(
+    period: string,
+    allocation: SectorAllocation[],
+    inputs: SectorPerformance[],
+    calculatedAt: string,
+  ): Promise<void>;
   listPortfolioSnapshots(): Promise<StoredPortfolioSnapshot[]>;
   saveDailyEvaluation(evaluation: DailyEvaluation, createdAt: string): Promise<void>;
   hasPublishedReport(period: string): Promise<boolean>;
@@ -108,6 +124,20 @@ export interface ResearchStore {
   countOrdersForMonth(month: string): Promise<number>;
   countOrdersForDate(date: string): Promise<number>;
   reserveOrderPlacement(date: string, month: string): Promise<boolean>;
+  reserveOrderPlacements(date: string, month: string, count: number): Promise<boolean>;
+  reserveRiskReducingOrder(date: string, month: string): Promise<boolean>;
+  saveHedgePlan(input: {
+    id: string;
+    eventClusterId: string;
+    relationshipIds: string[];
+    preHedgeScenarioLoss: number;
+    postHedgeScenarioLoss: number;
+    maximumOrphanLoss: number;
+    status: string;
+    intentIds: string[];
+    now: string;
+  }): Promise<void>;
+  updateHedgePlanStatus(id: string, status: string, now: string): Promise<void>;
   appendEdgeEvaluation(intentId: string, edge: number, createdAt: string): Promise<void>;
   recordExecutionScenario(input: {
     intentId: string;

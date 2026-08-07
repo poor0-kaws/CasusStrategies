@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { WeatherSourceAdapter } from "../src/adapters/sources";
+import {
+  CorporateEventsSourceAdapter,
+  EconomicsSourceAdapter,
+  LegalRegulatorySourceAdapter,
+  PublicPolicySourceAdapter,
+  WeatherSourceAdapter,
+} from "../src/adapters/sources";
 import type { ParsedContract, StoredSourceDocument } from "../src/contracts";
 import { sourcesForEvidence } from "../src/pipeline";
 
@@ -51,6 +57,67 @@ describe("official evidence boundaries", () => {
     expect(
       sourcesForEvidence([future.url], [future], contract, new Date("2026-08-07T12:00:00Z")),
     ).toEqual([]);
+  });
+
+  it.each([
+    [
+      "weather",
+      (fetcher: typeof fetch) => new WeatherSourceAdapter({ fetcher }),
+      "https://api.weather.gov/gridpoints/OKX/1,1",
+    ],
+    [
+      "economics",
+      (fetcher: typeof fetch) => new EconomicsSourceAdapter({ fetcher }),
+      "https://www.bls.gov/news.release/cpi.htm",
+    ],
+    [
+      "public_policy",
+      (fetcher: typeof fetch) => new PublicPolicySourceAdapter({ fetcher }),
+      "https://api.congress.gov/v3/bill",
+    ],
+    [
+      "legal_regulatory",
+      (fetcher: typeof fetch) => new LegalRegulatorySourceAdapter({ fetcher }),
+      "https://www.supremecourt.gov/orders/ordersofthecourt.aspx",
+    ],
+    [
+      "corporate_events",
+      (fetcher: typeof fetch) => new CorporateEventsSourceAdapter({ fetcher }),
+      "https://data.sec.gov/submissions/CIK0000320193.json",
+    ],
+  ] as const)("accepts the approved %s source boundary", async (category, adapter, url) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ title: "Official source" }), { status: 200 }),
+      );
+    const document = await adapter(fetcher).fetchDocument(url);
+
+    expect(document.sourceType).toBe(category);
+  });
+
+  it("keeps keyed API credentials out of the stored source URL", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ title: "Congress update" }), { status: 200 }),
+      );
+    const adapter = new PublicPolicySourceAdapter({
+      fetcher,
+      contactEmail: "research@example.org",
+      apiKeysByHost: {
+        "api.congress.gov": { parameter: "api_key", value: "private-congress-key" },
+      },
+    });
+
+    const document = await adapter.fetchDocument("https://api.congress.gov/v3/bill");
+    const requestedUrl = String(fetcher.mock.calls[0]?.[0]);
+    const requestHeaders = new Headers(fetcher.mock.calls[0]?.[1]?.headers);
+
+    expect(requestedUrl).toContain("api_key=private-congress-key");
+    expect(requestHeaders.get("User-Agent")).toContain("research@example.org");
+    expect(document.url).toBe("https://api.congress.gov/v3/bill");
+    expect(JSON.stringify(document)).not.toContain("private-congress-key");
   });
 });
 

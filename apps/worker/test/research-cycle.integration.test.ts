@@ -200,12 +200,14 @@ function createMemoryStore() {
       contracts.push(contract);
     }),
     appendRelationship: vi.fn(),
+    getVerifiedRelationships: vi.fn(async () => []),
     appendSourceDocument: vi.fn(async (document) => document),
     appendForecast: vi.fn(async (forecast) => {
       forecasts.push(forecast);
     }),
     getVerifiedRiskCluster: vi.fn(async () => ({ id: "cluster:WX-TEST", tickers: ["WX-TEST"] })),
     appendPortfolioSnapshot: vi.fn(),
+    getSectorExposure: vi.fn(async () => 0),
     getTradingFreeze: vi.fn(async () => tradingFreeze),
     setTradingFreeze: vi.fn(async (reason: string | null) => {
       tradingFreeze = reason;

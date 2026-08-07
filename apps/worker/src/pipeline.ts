@@ -4,6 +4,7 @@ import {
   calculateQuarterKellySize,
   evaluateRisk,
   type Forecast,
+  type ResearchCategory,
   type OrderPreview,
   type TradeIntent,
 } from "@casus/core";
@@ -15,6 +16,7 @@ import type { PointInTimeCollector } from "./collector";
 import type { CollectedMarket, ParsedContract, StoredSourceDocument } from "./contracts";
 import { sha256Hex } from "./crypto";
 import { buildForecast, type IntelligenceAgents } from "./intelligence";
+import { findVerifiedHedgeCandidates, VerifiedHedgeExecutor } from "./hedge-execution";
 import type { ScheduledWindow } from "./schedule";
 import type { ResearchStore } from "./store/research-store";
 
@@ -57,6 +59,9 @@ export class ResearchPipeline {
     window: ScheduledWindow,
   ): Promise<{ markets: number; forecasts: number; orders: number }> {
     let portfolio = await this.reconcile("cycle_start");
+    if (window.maximumModelRequests === 0) {
+      return { markets: 0, forecasts: 0, orders: 0 };
+    }
     let watchlist = await this.store.getWatchlist(window.date);
     let quotaReliable = true;
 
@@ -102,10 +107,34 @@ export class ResearchPipeline {
       contracts = await keepContractsWithUnchangedRules(contracts, rawRules);
     }
 
+    const relationships = await this.store.getVerifiedRelationships(
+      contracts.map((contract) => contract.id),
+    );
+    let orders = 0;
+    const hedgeCandidate = findVerifiedHedgeCandidates({
+      relationships,
+      contracts,
+      markets: snapshots,
+      now: this.now(),
+    })[0];
+    if (hedgeCandidate) {
+      const hedgeExecutor = new VerifiedHedgeExecutor({
+        store: this.store,
+        predArena: this.predArena,
+        tradingMode: this.tradingMode,
+        reconcile: (reason) => this.reconcile(reason),
+        now: this.now,
+      });
+      orders = await hedgeExecutor.execute(hedgeCandidate, portfolio, window.date);
+      if (orders > 0) {
+        portfolio = await this.reconcile(`after_hedge:${hedgeCandidate.relationship.id}`);
+      }
+    }
+
     const sources = await this.collectSources(contracts);
     if (sources.length === 0) {
       await this.reconcile("cycle_end_no_sources");
-      return { markets: snapshots.length, forecasts: 0, orders: 0 };
+      return { markets: snapshots.length, forecasts: 0, orders };
     }
 
     const evidenceResult = await this.agents.analyzeEvidence(contracts, sources);
@@ -151,7 +180,6 @@ export class ResearchPipeline {
       forecasts.push(forecast);
     }
 
-    let orders = 0;
     for (const forecast of forecasts) {
       if (orders >= 2) {
         break;
@@ -181,6 +209,7 @@ export class ResearchPipeline {
 
   async reconcile(reason: string): Promise<Awaited<ReturnType<PredArenaAdapter["getPortfolio"]>>> {
     const observedAt = this.now().toISOString();
+    const existingFreeze = await this.store.getTradingFreeze();
     let portfolio: Awaited<ReturnType<PredArenaAdapter["getPortfolio"]>>;
     let ledger: Awaited<ReturnType<PredArenaAdapter["getOrdersAndFills"]>>;
     try {
@@ -223,7 +252,7 @@ export class ResearchPipeline {
     const localClientIds = new Set(localOrders.map((order) => order.clientOrderId));
     for (const remote of ledger.orders) {
       if (
-        remote.strategy === "slow_value_v1" &&
+        ["slow_value_v1", "verified_hedge_v1"].includes(remote.strategy ?? "") &&
         (!remote.clientOrderId || !localClientIds.has(remote.clientOrderId))
       ) {
         mismatches.push(`remote_strategy_order_missing_local:${remote.orderId}`);
@@ -252,7 +281,7 @@ export class ResearchPipeline {
       observedAt,
     });
     await this.store.setTradingFreeze(
-      mismatches.length === 0 ? null : mismatches.join(","),
+      mismatches.length === 0 ? existingFreeze : mismatches.join(","),
       observedAt,
     );
     if (mismatches.length > 0) {
@@ -262,7 +291,7 @@ export class ResearchPipeline {
   }
 
   private async collectSources(contracts: ParsedContract[]): Promise<StoredSourceDocument[]> {
-    const byUrl = new Map<string, { url: string; category: "weather" | "economics" }>();
+    const byUrl = new Map<string, { url: string; category: ResearchCategory }>();
     for (const contract of contracts) {
       const category = classifyCategory(contract);
       if (category) {
@@ -352,7 +381,10 @@ export class ResearchPipeline {
       nav: input.portfolio.nav,
       marketExposure,
       clusterExposure,
+      sectorExposure: await this.store.getSectorExposure(input.forecast.category),
       totalOpenExposure: input.portfolio.openExposure,
+      grossDeployed: Math.max(0, input.portfolio.nav - input.portfolio.cash),
+      portfolioScenarioLoss: input.portfolio.openExposure,
       ambiguityScore: input.contract.ambiguityScore,
       maximumAllowedAmbiguity: 0.2,
       visibleExitContracts: visibleExitDepth,
@@ -535,13 +567,22 @@ async function collectSequentially<T, R>(items: T[], load: (item: T) => Promise<
   return results;
 }
 
-function classifyCategory(contract: ParsedContract): "weather" | "economics" | null {
+function classifyCategory(contract: ParsedContract): ResearchCategory | null {
   const text = `${contract.title} ${contract.facts.metricKey}`.toLowerCase();
   if (/weather|temperature|rain|snow|hurricane/.test(text)) {
     return "weather";
   }
   if (/inflation|cpi|jobs|unemployment|gdp|rate|treasury/.test(text)) {
     return "economics";
+  }
+  if (/election|congress|senate|house|bill|vote|candidate|policy/.test(text)) {
+    return "public_policy";
+  }
+  if (/court|lawsuit|ruling|order|regulation|regulatory|agency/.test(text)) {
+    return "legal_regulatory";
+  }
+  if (/earnings|filing|sec|merger|acquisition|company|corporate/.test(text)) {
+    return "corporate_events";
   }
   return null;
 }
@@ -651,6 +692,7 @@ async function createIntent(input: {
     ),
     forecastId: input.forecast.id,
     strategy: "slow_value_v1",
+    category: input.forecast.category,
     venue: input.market.venue,
     ticker: input.market.ticker,
     relatedEventClusterId: input.relatedEventClusterId,
@@ -668,6 +710,9 @@ function toIntentRecord(intent: TradeIntent): Record<string, unknown> {
     id: intent.intentId,
     forecastId: intent.forecastId,
     strategy: intent.strategy,
+    category: intent.category,
+    eventClusterId: intent.relatedEventClusterId,
+    hedgePlanId: intent.hedgePlanId ?? null,
     venue: intent.venue,
     ticker: intent.ticker,
     action: intent.action,
@@ -691,6 +736,9 @@ function toRiskRecord(
     reasonCodes: risk.reasons,
     maximumLoss: risk.proposedMaximumLoss,
     openExposureAfter: risk.totalExposureAfter,
+    grossExposureAfter: risk.grossExposureAfter,
+    sectorExposureAfter: risk.sectorExposureAfter,
+    scenarioLossAfter: risk.totalExposureAfter,
     createdAt: now,
   };
 }
@@ -726,7 +774,7 @@ export function sourcesForEvidence(
   if (!category) {
     return [];
   }
-  const maximumAgeMs = category === "weather" ? 48 * 60 * 60 * 1_000 : 7 * 24 * 60 * 60 * 1_000;
+  const maximumAgeMs = maximumEvidenceAgeMs(category);
   const sourceByUrl = new Map(sources.map((source) => [source.url, source]));
   return evidenceUrls.flatMap((url) => {
     const source = sourceByUrl.get(url);
@@ -746,6 +794,16 @@ export function sourcesForEvidence(
     }
     return [source];
   });
+}
+
+function maximumEvidenceAgeMs(category: ResearchCategory): number {
+  if (category === "weather") {
+    return 48 * 60 * 60 * 1_000;
+  }
+  if (category === "corporate_events") {
+    return 72 * 60 * 60 * 1_000;
+  }
+  return 7 * 24 * 60 * 60 * 1_000;
 }
 
 function isKnownValidationRejection(error: unknown): boolean {
