@@ -41,5 +41,6 @@ The public site deploys to Cloudflare Pages. The worker uses Workers Free, one D
 and D1. Follow `docs/DEPLOYMENT.md` after the local checks pass. Do not reuse any credential
 that has appeared in chat or source control.
 
+For the component map, scheduling flow, and safety boundaries, read `docs/ARCHITECTURE.md`.
 For a plain-language walkthrough of how a simulated trade moves through the system, read
 `docs/PAPER_TRADING.md`.
